@@ -1,0 +1,94 @@
+Description: "Deploy Single EC2 Linux Instance"
+Parameters:
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+Resources:
+  SSMAssocLogs:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+  SSMInstanceRole: 
+    Type : AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - s3:GetObject
+                Resource: 
+                  - !Sub 'arn:aws:s3:::aws-ssm-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::aws-windows-downloads-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::amazon-ssm-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::amazon-ssm-packages-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::${AWS::Region}-birdwatcher-prod/*'
+                  - !Sub 'arn:aws:s3:::patch-baseline-snapshot-${AWS::Region}/*'
+                Effect: Allow
+          PolicyName: ssm-custom-s3-policy
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:ListBucket
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:s3:::${SSMAssocLogs}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${SSMAssocLogs}'
+                Effect: Allow
+          PolicyName: s3-instance-bucket-policy
+      Path: /
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "ec2.amazonaws.com"
+            - "ssm.amazonaws.com"
+          Action: "sts:AssumeRole"
+  SSMInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+      - !Ref SSMInstanceRole
+  EC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: "t3.small"
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      Tags:
+      - Key: 'nginx'
+        Value: 'yes'
+  NginxAssociation:
+    # CloudFormation Resource Type that creates State Manager Associations
+    Type: AWS::SSM::Association
+    Properties:
+      # Command Document that this Association will run
+      Name: AWS-RunShellScript
+      WaitForSuccessTimeoutSeconds: 300
+      # Targeting Instance by InstanceId passed from the Logical ID of Instance being created 
+      # in CloudFormation
+      Targets:
+        - Key: InstanceIds
+          Values: [ !Ref EC2Instance ]
+      # The passing in the S3 Bucket that is created in the template that logs will be sent to
+      OutputLocation:
+        S3Location: 
+          OutputS3BucketName: !Ref SSMAssocLogs
+          OutputS3KeyPrefix: 'logs/'
+      # Parameters for the AWS-RunShellScript, in this case commands to install nginx
+      Parameters:
+        commands: 
+          - |
+              sudo amazon-linux-extras install nginx1 -y
+              sudo service nginx start
+Outputs:
+  WebServerPublic:
+    Value: !GetAtt 'EC2Instance.PublicDnsName'
+    Description: Public DNS for WebServer

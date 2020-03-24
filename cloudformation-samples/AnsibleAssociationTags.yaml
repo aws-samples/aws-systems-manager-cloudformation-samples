@@ -1,0 +1,117 @@
+Description: "Deploy Single EC2 Linux Instance"
+Parameters:
+  # Using SSM Parameter Store to fetch the Latest AMI for Amazon Linux, eliminates the need for AMI Mappings
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+  GitHubOwner:
+    Type: 'String'
+  GitHubRepo:
+    Type: 'String'
+  GitHubBranch:
+    Type: 'String'
+Resources:
+  SSMAssocLogs:
+    Type: AWS::S3::Bucket
+  SSMInstanceRole: 
+    Type : AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - s3:GetObject
+                Resource: 
+                  - !Sub 'arn:aws:s3:::aws-ssm-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::aws-windows-downloads-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::amazon-ssm-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::amazon-ssm-packages-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::${AWS::Region}-birdwatcher-prod/*'
+                  - !Sub 'arn:aws:s3:::patch-baseline-snapshot-${AWS::Region}/*'
+                Effect: Allow
+          PolicyName: ssm-custom-s3-policy
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:ListBucket
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:s3:::${SSMAssocLogs}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${SSMAssocLogs}'
+                Effect: Allow
+          PolicyName: s3-instance-bucket-policy
+      Path: /
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "ec2.amazonaws.com"
+            - "ssm.amazonaws.com"
+          Action: "sts:AssumeRole"
+  SSMInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+      - !Ref SSMInstanceRole
+  EC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: "t3.small"
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      Tags:
+      - Key: 'nginx'
+        Value: 'yes'
+  AnsibleAssociation:
+    Type: AWS::SSM::Association
+    Properties:
+      # Here using the AWS-ApplyAnsiblePlaybooks
+      Name: AWS-ApplyAnsiblePlaybooks
+      WaitForSuccessTimeoutSeconds: 300
+      # Targeting Instance by tags
+      Targets:
+        - Key: tag:nginx
+          Values:
+            - yes
+      OutputLocation:
+        S3Location: 
+          OutputS3BucketName: !Ref SSMAssocLogs
+          OutputS3KeyPrefix: 'logs/'
+      ScheduleExpression: "cron(15 23 * * ? *)"
+      Parameters:
+        # Getting an Ansible Playbook from a GitHub Location
+        SourceType:
+          - 'GitHub'
+        # At a minimum must include the following GitHub repo information, if using a private repo 
+        # would want to inlcude the GitHub Token option
+        SourceInfo:
+          -  !Sub |
+              {"owner":"${GitHubOwner}",
+              "repository":"${GitHubRepo}",
+              "path":"",
+              "getOptions":"branch:${GitHubBranch}"}
+        # Installing Ansible and its dependencies
+        InstallDependencies:
+          - 'True'
+        # Playbook file we want to run
+        PlaybookFile:
+          - 'playbook.yml'
+        ExtraVariables:
+          - 'SSM=True'
+        Check:
+          - 'False'
+        Verbose:
+          - '-v'
+Outputs:
+  WebServerPublic:
+    Value: !GetAtt 'EC2Instance.PublicDnsName'
+    Description: Public DNS for WebServer
