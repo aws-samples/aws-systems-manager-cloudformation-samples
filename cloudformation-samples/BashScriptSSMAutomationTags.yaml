@@ -153,7 +153,11 @@ Resources:
       ImageId: !Ref LatestAmiId
       InstanceType: "t3.medium"
       IamInstanceProfile: !Ref SSMInstanceProfile
+      Tags:
+       - Key: nginx
+         Value: Yes
   NginxAssociation:
+    DependsOn: EC2Instance
     Type: AWS::SSM::Association
     Properties:
       Name: !Ref nginxInstallAutomation
@@ -167,9 +171,9 @@ Resources:
         AutomationAssumeRole:
           - !GetAtt 'SSMExecutionRole.Arn'
       Targets:
-        - Key: ParameterValues
+        - Key: tag:nginx
           Values:
-            - !Ref EC2Instance      
+            - Yes     
 Outputs:
   WebServerPublic:
     Value: !GetAtt 'EC2Instance.PublicDnsName'

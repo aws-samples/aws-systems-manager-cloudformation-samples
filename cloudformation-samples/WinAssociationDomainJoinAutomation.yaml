@@ -276,7 +276,6 @@ Resources:
               description: "AWS Secrets Parameter Name that has Password and User name for a domain administrator."
               type: "String"
             S3BucketName:
-              default: "alpublic"
               description: "S3 bucket name for the Quick Start assets. Quick Start bucket name can include numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-)."
               type: "String"
             AutomationAssumeRole:
