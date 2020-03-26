@@ -67,6 +67,7 @@ Resources:
       - Key: 'nginx'
         Value: 'yes'
   NginxAssociation:
+    DependsOn: EC2Instance
     # CloudFormation Resource Type that creates State Manager Associations
     Type: AWS::SSM::Association
     Properties:

@@ -55,9 +55,6 @@ Parameters:
   SubnetID:
     Description: ID of a Subnet.
     Type: AWS::EC2::Subnet::Id
-  VPCID:
-    Description: ID of the target VPC (e.g., vpc-0343606e).
-    Type: AWS::EC2::VPC::Id
 Resources:
   DSCBucket:
     Type: AWS::S3::Bucket
@@ -73,7 +70,7 @@ Resources:
     Properties:
       Name: !Sub 'DomainJoinSecrets-${AWS::StackName}'
       Description: Secrets to join AD domain
-      SecretString: !Sub '{"username":"${DomainNetBIOSName}\\${DomainAdminUser}","password":"${DomainAdminPassword}"}'
+      SecretString: !Sub '{"username":"${DomainAdminUser}","password":"${DomainAdminPassword}"}'
   LambdaSSMRole:
     Type: AWS::IAM::Role
     Properties:
@@ -348,6 +345,33 @@ Resources:
                      Start-DscConfiguration 'C:\awssample\DomainJoin' -Wait -Verbose -Force
                      
                      DscStatusCheck
+  SSMExecutionRole: 
+    Type : AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - ssm:StartAssociationsOnce
+                  - ssm:CreateAssociation
+                  - ssm:CreateAssociationBatch
+                  - ssm:UpdateAssociation
+                Resource: '*'
+                Effect: Allow
+          PolicyName: ssm-association
+      Path: /
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonSSMAutomationRole'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: "Allow"
+          Principal:
+            Service:
+            - "ec2.amazonaws.com"
+            - "ssm.amazonaws.com"
+          Action: "sts:AssumeRole"
   SSMInstanceRole: 
     Type : AWS::IAM::Role
     Properties:
@@ -374,7 +398,7 @@ Resources:
                   - secretsmanager:GetSecretValue
                   - secretsmanager:DescribeSecret
                 Resource: 
-                  - !Ref 'AdminSecrets'
+                  - !Ref 'DomainJoinSecrets'
           PolicyName: ssm-secrets-policy
         - PolicyDocument:
             Version: '2012-10-17'
@@ -433,19 +457,19 @@ Resources:
       Targets:
         - Key: ParameterValues
           Values:
-            - !Ref WINEC2Instance1
+            - !Ref WINEC2Instance
       OutputLocation:
         S3Location: 
-          OutputS3BucketName: !Ref SSMAssocLogs
+          OutputS3BucketName: !Ref DSCBucket
           OutputS3KeyPrefix: 'logs/'
       Parameters:
         DomainDNSName: 
-          - "example.com"
+          - !Ref DomainDNSName
         DomainNetBIOSName: 
-          - "example"
+          - !Ref DomainNetBIOSName
         AdminSecrets:
-          - !Ref AdminSecrets
+          - !Ref DomainJoinSecrets
         S3BucketName:
           - !Ref DSCBucket
         AutomationAssumeRole:
-          - 'arn:aws:iam::024357338510:role/EC2-Admin'
+          - !GetAtt 'SSMExecutionRole.Arn'

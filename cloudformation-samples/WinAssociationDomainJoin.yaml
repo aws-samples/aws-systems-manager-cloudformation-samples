@@ -55,9 +55,6 @@ Parameters:
   SubnetID:
     Description: ID of a Subnet.
     Type: AWS::EC2::Subnet::Id
-  VPCID:
-    Description: ID of the target VPC (e.g., vpc-0343606e).
-    Type: AWS::EC2::VPC::Id
 Resources:
   DSCBucket:
     Type: AWS::S3::Bucket
@@ -182,6 +179,16 @@ Resources:
         - PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource: 
+                  - !Ref 'DomainJoinSecrets'
+          PolicyName: ssm-secrets-policy
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
               - Action:
                   - s3:GetObject
                   - s3:PutObject
@@ -195,7 +202,7 @@ Resources:
       Path: /
       ManagedPolicyArns:
         - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
-        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonEC2ReadOnlyAccess'
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -228,6 +235,9 @@ Resources:
       - Key: "DomainToJoin"
         Value: !Ref "DomainDNSName"
   JoinDomainAssociation:
+    DependsOn: 
+      - WINEC2Instance
+      - WriteDomainJoinMOF
     Type: AWS::SSM::Association
     Properties:
       WaitForSuccessTimeoutSeconds: 300
@@ -252,16 +262,10 @@ Resources:
           - Apply
         ComplianceType:
           - Custom:DomainJoinSample
-        ReportBucketName:
-          - ""
-        StatusBucketName:
-          - ""
         ModuleSourceBucketName:
           - "NONE"
         AllowPSGalleryModuleSource:
           - "True"
-        ProxyUri:
-          - ""
         RebootBehavior:
           - "AfterMof"
         UseComputerNameForReporting:
@@ -270,5 +274,3 @@ Resources:
           - "False"
         EnableDebugLogging:
           - "False"
-        PreRebootScript: 
-          - ""

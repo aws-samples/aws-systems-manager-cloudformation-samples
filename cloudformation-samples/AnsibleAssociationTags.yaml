@@ -71,6 +71,7 @@ Resources:
       - Key: 'nginx'
         Value: 'yes'
   AnsibleAssociation:
+    DependsOn: EC2Instance
     Type: AWS::SSM::Association
     Properties:
       # Here using the AWS-ApplyAnsiblePlaybooks
