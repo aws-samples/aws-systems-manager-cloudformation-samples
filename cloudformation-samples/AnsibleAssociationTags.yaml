@@ -92,7 +92,7 @@ Resources:
         SourceType:
           - 'GitHub'
         # At a minimum must include the following GitHub repo information, if using a private repo 
-        # would want to inlcude the GitHub Token option
+        # would want to include the GitHub Token option
         SourceInfo:
           -  !Sub |
               {"owner":"${GitHubOwner}",
