@@ -1,0 +1,140 @@
+---
+schemaVersion: "0.3"
+description: "reinvent 2019 MGT416 example"
+assumeRole: "{{AutomationAssumeRole}}"
+parameters:
+  AMI:
+    default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+    description: "SSM Parameter for AMI"
+    type: "String"
+  AutomationAssumeRole:
+    default: ""
+    description: "(Optional) The ARN of the role to run Automations on your behalf."
+    type: "String"
+  ResourcePrefix:
+    default: "MGT-416"
+    description: "String to prefix to the resources"
+    type: String
+
+mainSteps:
+  - name: createStack
+    action: aws:createStack
+    inputs:
+      StackName: "EC2Linux-{{automation:EXECUTION_ID}}"
+      Capabilities: [ "CAPABILITY_IAM" ]
+      TemplateBody: |
+        Description: "Deploy Single EC2 Linux Instance"
+        Parameters:
+          ResourcePrefix:
+            Type: 'String'
+            Default: "{{ResourcePrefix}}"
+          LatestAmiId:
+            Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+            Default: "{{AMI}}"
+        Resources:
+          SecurityGroup:
+            Type: AWS::EC2::SecurityGroup
+            Properties:
+              GroupDescription:
+                "Fn::Join":
+                  - "-"
+                  - - { Ref: ResourcePrefix }
+                    - "sg"
+              SecurityGroupIngress:
+                - CidrIp: "0.0.0.0/0"
+                  IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+          SSMInstanceRole:
+            Type : AWS::IAM::Role
+            Properties:
+              Policies:
+                - PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Action:
+                          - s3:GetObject
+                        Resource:
+                          - !Sub 'arn:aws:s3:::aws-ssm-${AWS::Region}/*'
+                          - !Sub 'arn:aws:s3:::aws-windows-downloads-${AWS::Region}/*'
+                          - !Sub 'arn:aws:s3:::amazon-ssm-${AWS::Region}/*'
+                          - !Sub 'arn:aws:s3:::amazon-ssm-packages-${AWS::Region}/*'
+                          - !Sub 'arn:aws:s3:::${AWS::Region}-birdwatcher-prod/*'
+                          - !Sub 'arn:aws:s3:::patch-baseline-snapshot-${AWS::Region}/*'
+                        Effect: Allow
+                  PolicyName: ssm-custom-s3-policy
+              Path: /
+              ManagedPolicyArns:
+                - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+                - !Sub 'arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy'
+              AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Effect: "Allow"
+                    Principal:
+                      Service:
+                        - "ec2.amazonaws.com"
+                        - "ssm.amazonaws.com"
+                    Action: "sts:AssumeRole"
+          SSMInstanceProfile:
+            Type: "AWS::IAM::InstanceProfile"
+            Properties:
+              Roles:
+                - !Ref SSMInstanceRole
+          EC2Instance:
+            Type: "AWS::EC2::Instance"
+            Properties:
+              ImageId: !Ref LatestAmiId
+              InstanceType: "t3.small"
+              IamInstanceProfile: !Ref SSMInstanceProfile
+              SecurityGroups:
+                - { Ref: SecurityGroup }
+              Tags:
+                - Key: "Name"
+                  Value: "MGT416-EC2"
+
+  - name: "getInstanceId"
+    action: aws:executeAwsApi
+    inputs:
+      Service: ec2
+      Api: DescribeInstances
+      Filters:
+        - Name: "tag:Name"
+          Values: [ "MGT416-EC2" ]
+        - Name: "tag:aws:cloudformation:stack-name"
+          Values: ["EC2Linux-{{automation:EXECUTION_ID}}"]
+        - Name: "instance-state-name"
+          Values: [ "running" ]
+    outputs:
+      - Name: InstanceId
+        Selector: "$.Reservations..Instances..InstanceId"
+        Type: "StringList"
+
+  - name: "YumUpdate"
+    action: "aws:runCommand"
+    inputs:
+      DocumentName: "AWS-RunShellScript"
+      InstanceIds:
+      - "{{getInstanceId.InstanceId}}"
+      CloudWatchOutputConfig:
+        CloudWatchOutputEnabled: "true"
+      Parameters:
+        commands:
+          - |
+              sudo yum update -y
+
+  - name: "InstallNginx"
+    action: "aws:runCommand"
+    inputs:
+      DocumentName: "AWS-RunShellScript"
+      InstanceIds:
+      - "{{getInstanceId.InstanceId}}"
+      CloudWatchOutputConfig:
+        CloudWatchOutputEnabled: "true"
+      Parameters:
+        commands:
+          - |
+              sudo amazon-linux-extras install nginx1 -y
+              sudo service nginx start
+outputs:
+  - getInstanceId.InstanceId
