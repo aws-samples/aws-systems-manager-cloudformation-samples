@@ -80,10 +80,12 @@ Resources:
             Statement:
             - Effect: Allow
               Action:
-              - s3:PutObject
+                - s3:PutObject
+                - s3:DeleteObject
+                - s3:ListBucket
               Resource:
-                - !Sub "${DSCBucket.Arn}"
-                - !Sub "${DSCBucket.Arn}/*"
+                - !Sub "arn:aws:s3:::${DSCBucket}"
+                - !Sub "arn:aws:s3:::${DSCBucket}/*"
           PolicyName: write-mof-s3
       Path: /
       AssumeRolePolicyDocument:
@@ -100,31 +102,50 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       Code:
-        ZipFile: >
-          var AWS = require('aws-sdk'), s3 = new AWS.S3();
-          const response = require("cfn-response");
-          exports.handler = async (event, context) => {
-            console.log(JSON.stringify(event));
-            if (event.RequestType === 'Delete') {
-                await postResponse(event, context, response.SUCCESS, {})
-                return;
-            }
-            function postResponse(event, context, status, data){
-                return new Promise((resolve, reject) => {
-                    setTimeout(() => response.send(event, context, status, data), 5000)
-                });
-            }
-            await s3.putObject({
-              Body: event.ResourceProperties.Body,
-              Bucket: event.ResourceProperties.Bucket,
-              Key: event.ResourceProperties.Key
-            }).promise();
-            await postResponse(event, context, response.SUCCESS, {});
-          };
+        ZipFile: |
+          import json
+          import logging
+          import threading
+          import boto3
+          import cfnresponse
+          def create_object(bucket, body, key):
+              s3 = boto3.client('s3')
+              s3.put_object(Body=body,Bucket=bucket, Key=key)
+          def delete_objects(bucket):
+              s3 = boto3.client('s3')
+              objects = s3.list_objects_v2(
+                Bucket=bucket)
+              for key in objects['Contents']:
+                 s3.delete_object(
+                    Bucket=bucket,
+                    Key=key['Key'])
+          def timeout(event, context):
+              logging.error('Execution is about to time out, sending failure response to CloudFormation')
+              cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
+          def handler(event, context):
+              # make sure we send a failure to CloudFormation if the function is going to timeout
+              timer = threading.Timer((context.get_remaining_time_in_millis() / 1000.00) - 0.5, timeout, args=[event, context])
+              timer.start()
+              print('Received event: %s' % json.dumps(event))
+              status = cfnresponse.SUCCESS
+              try:
+                  bucket = event['ResourceProperties']['Bucket']
+                  body = event['ResourceProperties']['Body']
+                  key = event['ResourceProperties']['Key']
+                  if event['RequestType'] == 'Delete':
+                      delete_objects(bucket)
+                  else:
+                      create_object(bucket, body, key)
+              except Exception as e:
+                  logging.error('Exception: %s' % e, exc_info=True)
+                  status = cfnresponse.FAILED
+              finally:
+                  timer.cancel()
+                  cfnresponse.send(event, context, status, {}, None)
       Handler: index.handler
       Role: !GetAtt LambdaSSMRole.Arn
-      Runtime: nodejs10.x
-      Timeout: 10
+      Runtime: python3.7
+      Timeout: 240
   WriteDomainJoinMOF:
     Type: Custom::WriteMOFFile
     Properties:
