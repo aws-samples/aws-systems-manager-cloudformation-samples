@@ -12,6 +12,8 @@
 
 **[BashScriptSSMAutomationTags.yaml](BashScriptSSMAutomationTags.yaml)** - This template demonstrates how you can run a bash script with CloudFormation using State Manager and Automation for a more complex workflow with multiple steps. Target is based on Tags.
 
+**[ChefAssociation.yaml](ChefAssociation.yaml)** - This template demonstrates how you can use Chef with CloudFormation and AWS Systems Manager. This CFN Template grabs the Chef Recipe from a Github repo. Target is based on Instance ID. 
+
 **[WinAssociationDomainJoin.yaml](WinAssociationDomainJoin.yaml)** - This template demonstrates how you can join a Windows AD Domain with CloudFormation using State Manager. Target is based on Tags.
 
 **[WinAssociationDomainJoinAutomation.yaml](WinAssociationDomainJoinAutomation.yaml)** - This template demonstrates how you can join a Windows AD Domain with CloudFormation using State Manager and Automation for a more complex workflow with multiple steps. Target is based on Tags.
