@@ -123,7 +123,7 @@ Resources:
           };
       Handler: index.handler
       Role: !GetAtt LambdaSSMRole.Arn
-      Runtime: nodejs10.x
+      Runtime: nodejs14.x
       Timeout: 10
   WriteDomainJoinScript:
     Type: Custom::WriteScript
